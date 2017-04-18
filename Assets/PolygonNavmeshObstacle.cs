@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
+/// <summary>
+/// Place this script on a polygon collider to have the collider included in the 2D navmesh.
+/// </summary>
 [DefaultExecutionOrder(-200)] //execute before the navmesh builder
 [RequireComponent(typeof(PolygonCollider2D))]
 public class PolygonNavmeshObstacle : MonoBehaviour {

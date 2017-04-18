@@ -3,13 +3,16 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
+/// <summary>
+/// Place this script somewhere in the scene to generate the navmesh. If an origin is not specified, it'll use its transform's position as the origin.
+/// </summary>
 [DefaultExecutionOrder(-102)] //execute before navMeshAgents
 public class TwoDNavMeshBuilder : MonoBehaviour {
     // The center of the build
     public Transform meshOrigin;
 
     // The size of the build bounds
-    public Vector3 buildSize = new Vector3(100.0f, 100.0f, 100.0f);
+    public Vector3 buildSize = new Vector3(100.0f, 100.0f, 2.0f);
 
     NavMeshData m_NavMesh;
     NavMeshDataInstance m_Instance;
