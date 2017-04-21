@@ -17,8 +17,11 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
     // The size of the build bounds
     public Vector3 buildSize = new Vector3(100.0f, 100.0f, 2.0f);
 
-    public Vector3 reachabilityOrigin;
+    public Vector3 vectorPrecision = new Vector3(0.1f, 0.1f, 0.1f);
+
+    public Vector3[] reachabilityOrigins;
     public bool includeUnreachableAreas; //if true, unreachable navTriangles are included as Area 1
+    public int unreachableAreaIndex = 1; //index of the area in the list of areas which we will label unreachable triangles with
 
     NavMeshData m_NavMesh;
     NavMeshDataInstance m_Instance;
@@ -39,6 +42,7 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         List<NavMeshBuildSource> navSources = PolygonNavmeshObstacle.Collect();
         navSources.Add(generateWalkablePlane());
         
+        //rotation from XY plane to XZ plane
         for(int i = 0; i < navSources.Count; i++) {
             Matrix4x4 transformation = navSources[i].transform;
 
@@ -66,7 +70,7 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         //do de-duping on vertices
         Dictionary<Vector3, int> positionToNewIndex = new Dictionary<Vector3, int>();
         for (int i = 0; i < triangulation.vertices.Length; i++) {
-            Vector3 vertexPosition = Quantize(triangulation.vertices[i], Vector3.one/10); //round to one decimal place
+            Vector3 vertexPosition = Quantize(triangulation.vertices[i], vectorPrecision); //round to one decimal place
             if (!positionToNewIndex.ContainsKey(vertexPosition)) {
                 positionToNewIndex[vertexPosition] = positionToNewIndex.Count;
             }
@@ -78,19 +82,34 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         }
         int[] triangleIndices = new int[triangulation.indices.Length];
         for (int i = 0; i < triangulation.indices.Length; i++) {
-            Vector3 vertexPosition = Quantize(triangulation.vertices[triangulation.indices[i]], Vector3.one / 10);
+            Vector3 vertexPosition = Quantize(triangulation.vertices[triangulation.indices[i]], vectorPrecision);
             triangleIndices[i] = positionToNewIndex[vertexPosition];
         }
 
         HashSet<int> reachableVertices;
 
         navSources.Add(generateReachableArea(deDupedVertices, triangleIndices, out reachableVertices));
+
         if(includeUnreachableAreas) {
             navSources.Add(generateUnreachableArea(deDupedVertices, triangleIndices, reachableVertices));
         }
 
+        //rotation from XZ plane to XY plane
+        for (int i = 0; i < navSources.Count; i++) {
+            Matrix4x4 transformation = navSources[i].transform;
+
+            Vector4 verticalDirection = transformation.GetRow(1);
+            transformation.SetRow(1, transformation.GetRow(2));
+            transformation.SetRow(2, verticalDirection);
+
+            //these structs are pass by value, apperently?
+            NavMeshBuildSource buildSource = navSources[i];
+            buildSource.transform = transformation;
+            navSources[i] = buildSource;
+        }
+
         m_Instance.Remove();
-        m_NavMesh = NavMeshBuilder.BuildNavMeshData(buildSettings, navSources, bounds, Vector3.zero, Quaternion.identity);//Quaternion.LookRotation(-Vector3.up, Vector3.forward));
+        m_NavMesh = NavMeshBuilder.BuildNavMeshData(buildSettings, navSources, bounds, Vector3.zero, Quaternion.LookRotation(-Vector3.up, Vector3.forward));
         //replace the old navmesh with the new one
 
         ///*
@@ -133,24 +152,6 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
 
     NavMeshBuildSource generateReachableArea(Vector3[] deDupedVertices, int[] triangleIndices, out HashSet<int> reachableVertices) {
 
-        Debug.Log(deDupedVertices.Length);
-        for(int i = 0; i < deDupedVertices.Length; i++) {
-            Debug.Log(deDupedVertices[i]);
-        }
-        
-
-        int originVertexIndex = 0; //find the closest vertex to use as the origin
-        float originDistance = Vector3.SqrMagnitude(reachabilityOrigin - deDupedVertices[0]);
-        for (int i = 1; i < deDupedVertices.Length; i++) {
-            float distance = Vector3.SqrMagnitude(reachabilityOrigin - deDupedVertices[i]);
-            if (distance < originDistance) {
-                originDistance = distance;
-                originVertexIndex = i;
-            }
-        }
-
-        Dictionary<int, int> vertexIndexMapping = new Dictionary<int, int>(); //maps vertex indices in the original triangulation to vertex indices in the new input mesh
-        //if a vertex is reachable, it'll be in this dict.
         Dictionary<int, List<int>> containedTriangles = new Dictionary<int, List<int>>();
 
         //map original vertex index to the list of triangles that contain that vertex
@@ -164,9 +165,30 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
             }
         }
 
+        //calculate closest vertices to the reachability origins
+        if (reachabilityOrigins.Length == 0) {
+            reachabilityOrigins = new Vector3[] { meshOrigin.position };
+        }
+
         Queue<int> frontierQueue = new Queue<int>(); //queue of vertices to add
 
-        frontierQueue.Enqueue(originVertexIndex);
+        for (int i = 0; i < reachabilityOrigins.Length; i++) {
+            int originVertexIndex = 0; //find the closest vertex to use as the origin
+            float originDistance = Vector3.SqrMagnitude(reachabilityOrigins[i] - deDupedVertices[0]);
+            for (int j = 1; i < deDupedVertices.Length; j++) {
+                float distance = Vector3.SqrMagnitude(reachabilityOrigins[i] - deDupedVertices[j]);
+                if (distance < originDistance) {
+                    originDistance = distance;
+                    originVertexIndex = j;
+                }
+            }
+
+            //enqueue origin vertex
+            frontierQueue.Enqueue(originVertexIndex);
+        }
+
+        Dictionary<int, int> vertexIndexMapping = new Dictionary<int, int>(); //maps vertex indices in the original triangulation to vertex indices in the new input mesh
+                                                                              //if a vertex is reachable, it'll be in this dict.
 
         while (frontierQueue.Count > 0) {
             int nextVertex = frontierQueue.Dequeue();
@@ -209,11 +231,13 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
 
         Mesh mesh = generateBuildSourceFromTriangulation(deDupedVertices, triangleIndices, vertexIndexMapping);
 
+        Debug.Log(mesh.triangles.Length);
+
         NavMeshBuildSource reachableResult = new NavMeshBuildSource();
         reachableResult.shape = NavMeshBuildSourceShape.Mesh;
         reachableResult.sourceObject = mesh;
         reachableResult.transform = Matrix4x4.identity;
-        reachableResult.area = 1;
+        reachableResult.area = unreachableAreaIndex;
 
         return reachableResult;
     }
@@ -310,28 +334,25 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         return new Vector3(x, y, 0);
     }
 
-    Vector3 RandomPointOnNavmesh(int numRegenerations = 0) {
+    Vector3 RandomPointOnNavmesh(int numRegenerations = 0, int areaMask = NavMesh.AllAreas) {
         Vector3 destinationPoint = main.RandomPointInBounds();
         NavMeshHit myNavHit;
-        while (!NavMesh.SamplePosition(destinationPoint, out myNavHit, 100 + numRegenerations * 10, -1)) {
+        while (!NavMesh.SamplePosition(destinationPoint, out myNavHit, 100 + numRegenerations * 10, areaMask)) {
             destinationPoint = main.RandomPointInBounds(); //regenerate point
             numRegenerations++; //lower our restrictions
         }
         return myNavHit.position;
     }
 
-    public static NavMeshPath RandomPath(Vector3 startingPoint, out Vector3 destinationPoint, int areaMask = NavMesh.AllAreas) {
+    public NavMeshPath RandomPath(Vector3 startingPoint, out Vector3 destinationPoint, int areaMask = NavMesh.AllAreas) {
         NavMeshPath path = new NavMeshPath();
         int numRegenerations = 0; //we'll lower our restrictions as we have more regenerations
         destinationPoint = main.RandomPointOnNavmesh(numRegenerations);
         while (!NavMesh.CalculatePath(startingPoint, destinationPoint, areaMask, path)) {
+            //if path is invalid, pick a new destination and regenerate
             numRegenerations++;
             destinationPoint = main.RandomPointOnNavmesh(numRegenerations);
         }
         return path;
-    }
-
-    public static NavMeshPath RandomPathOnReachableMesh(out Vector3 destinationPoint, int areaMask = NavMesh.AllAreas) {
-        return RandomPath(main.reachabilityOrigin, out destinationPoint, areaMask);
     }
 }
