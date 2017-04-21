@@ -29,14 +29,15 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
     //List<NavMeshBuildSource> m_Sources = new List<NavMeshBuildSource>();
 
     void OnEnable() {
+
+        main = this;
         // Construct and add navmesh
 
         if (meshOrigin == null)
             meshOrigin = transform;
 
-        float yMax = Mathf.Max(Mathf.Abs(meshOrigin.position.z), Mathf.Abs(meshOrigin.position.y));
-        Vector3 boundsSize = new Vector3(buildSize.x + Mathf.Abs(meshOrigin.position.x), buildSize.y + yMax, buildSize.y + yMax);
-        Bounds bounds = new Bounds(new Vector3(meshOrigin.position.x, meshOrigin.position.z, meshOrigin.position.y), boundsSize); // navmesh space bounds 
+        //Bounds bounds = new Bounds(new Vector3(meshOrigin.position.x, meshOrigin.position.y, meshOrigin.position.y), new Vector3(buildSize.x, buildSize.y, buildSize.y)); // navmesh space bounds 
+        Bounds bounds = new Bounds(meshOrigin.position, new Vector3(buildSize.x, buildSize.y, buildSize.y));
 
         NavMeshBuildSettings buildSettings = NavMesh.GetSettingsByID(0);
         float defaultAgentRadius = buildSettings.agentRadius;
@@ -67,7 +68,7 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
 
         navSources.Clear();
         buildSettings.agentRadius = defaultAgentRadius - buildSettings.agentRadius;
-        bounds = new Bounds(meshOrigin.position, boundsSize);
+        //bounds = new Bounds(meshOrigin.position, new Vector3(buildSize.x, buildSize.y, buildSize.y));
 
         NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
 
@@ -332,30 +333,33 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
             Gizmos.DrawWireCube(m_NavMesh.sourceBounds.center, m_NavMesh.sourceBounds.size);
         }
 
+        Vector3 vec3Bounds = new Vector3(buildSize.x, buildSize.y, buildSize.y);
         Gizmos.color = Color.yellow;
 
         Vector3 gizmoPosition = meshOrigin != null ? meshOrigin.position : transform.position;
 
-        Gizmos.DrawWireCube(gizmoPosition, buildSize);
+        Gizmos.DrawWireCube(gizmoPosition, vec3Bounds);
 
         Gizmos.color = Color.green;
         var center = meshOrigin ? meshOrigin.position : transform.position;
-        Gizmos.DrawWireCube(center, buildSize);
+        Gizmos.DrawWireCube(center, vec3Bounds);
     }
 
     Vector3 RandomPointInBounds() {
-        float x = Random.Range(-buildSize.x, buildSize.x);
-        float y = Random.Range(-buildSize.y, buildSize.y);
+        float x = meshOrigin.position.x + Random.Range(-buildSize.x, buildSize.x);
+        float y = meshOrigin.position.y + Random.Range(-buildSize.y, buildSize.y);
         return new Vector3(x, y, 0);
     }
 
     public Vector3 RandomPointOnNavmesh(int numRegenerations = 0, int areaMask = NavMesh.AllAreas) {
-        Vector3 destinationPoint = main.RandomPointInBounds();
+        Vector3 destinationPoint = RandomPointInBounds();
         NavMeshHit myNavHit;
         while (!NavMesh.SamplePosition(destinationPoint, out myNavHit, 100 + numRegenerations * 10, areaMask)) {
             destinationPoint = main.RandomPointInBounds(); //regenerate point
-            numRegenerations++; //lower our restrictions
+            numRegenerations++; //lower our restriction
+            if (numRegenerations > 10) { return Vector3.one; }
         }
+        Debug.Log(myNavHit.position);
         return myNavHit.position;
     }
 
@@ -366,6 +370,7 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         while (!NavMesh.CalculatePath(startingPoint, destinationPoint, areaMask, path)) {
             //if path is invalid, pick a new destination and regenerate
             numRegenerations++;
+            if (numRegenerations > 10) { return null; }
             destinationPoint = main.RandomPointOnNavmesh(numRegenerations);
         }
         return path;
