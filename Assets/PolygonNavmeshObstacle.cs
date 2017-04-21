@@ -22,7 +22,9 @@ public class PolygonNavmeshObstacle : MonoBehaviour {
     void Awake() {
         polyCollider = GetComponent<PolygonCollider2D>();
 
-        allPolygonSources.Add(this);
+        if (this.isActiveAndEnabled) {
+            allPolygonSources.Add(this);
+        }
     }
 
     Mesh convertToMesh() {
@@ -37,12 +39,12 @@ public class PolygonNavmeshObstacle : MonoBehaviour {
             Vector2[] path = polyCollider.GetPath(pathIndex);
 
             int startingVertexIndex = vertices.Count;
-            vertices.Add(convertVector(path[0]));
-            vertices.Add(convertVector(path[0], 1));
+            vertices.Add(convertVector(path[0], +1));
+            vertices.Add(convertVector(path[0], -1));
             for (int i = 1; i < path.Length; i++) {
                 int vertexIndex = vertices.Count;
-                vertices.Add(convertVector(path[i]));
-                vertices.Add(convertVector(path[i], 1));
+                vertices.Add(convertVector(path[i], +1));
+                vertices.Add(convertVector(path[i], -1));
 
                 //lower triangle
                 triangles.Add(vertexIndex - 2);
@@ -86,7 +88,7 @@ public class PolygonNavmeshObstacle : MonoBehaviour {
         result.shape = NavMeshBuildSourceShape.Mesh;
         result.sourceObject = mesh;
         Matrix4x4 sourceTransform = transform.localToWorldMatrix;
-        sourceTransform.m23 = 0; //zero out the offset in the Z-direction, since that's ignored for most 2D games
+        //sourceTransform.m23 = 0; //zero out the offset in the Z-direction, since that's ignored for most 2D games
         result.transform = sourceTransform;
         result.area = 0;
 
@@ -103,5 +105,9 @@ public class PolygonNavmeshObstacle : MonoBehaviour {
         }
         return result;
     }
-    
+
+    private void Update() {
+        this.enabled = false;
+    }
+
 }

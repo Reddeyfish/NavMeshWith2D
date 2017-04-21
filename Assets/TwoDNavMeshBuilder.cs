@@ -71,9 +71,9 @@ public class TwoDNavMeshBuilder : MonoBehaviour {
     }
 
     static Vector3 Quantize(Vector3 v, Vector3 quant) {
-        float x = quant.x * Mathf.Floor(v.x / quant.x);
-        float y = quant.y * Mathf.Floor(v.y / quant.y);
-        float z = quant.z * Mathf.Floor(v.z / quant.z);
+        float x = quant.x * Mathf.RoundToInt(v.x / quant.x);
+        float y = quant.y * Mathf.RoundToInt(v.y / quant.y);
+        float z = quant.z * Mathf.RoundToInt(v.z / quant.z);
         return new Vector3(x, y, z);
     }
 
