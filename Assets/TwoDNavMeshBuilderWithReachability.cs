@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.Assertions;
 
 /// <summary>
 /// Place this script somewhere in the scene to generate the navmesh. If an origin is not specified, it'll use its transform's position as the origin.
@@ -9,13 +10,13 @@ using UnityEngine.AI;
 [DefaultExecutionOrder(-102)] //execute before navMeshAgents
 public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
     static TwoDNavMeshBuilderWithReachability main = null;
-    //public static TwoDNavMeshBuilderWithReachability Main { get { return main; } }
+    public static TwoDNavMeshBuilderWithReachability Main { get { return main; } }
 
     // The center of the build
     public Transform meshOrigin;
 
     // The size of the build bounds
-    public Vector3 buildSize = new Vector3(100.0f, 100.0f, 2.0f);
+    public Vector2 buildSize = new Vector2(100.0f, 100.0f);
 
     public Vector3 vectorPrecision = new Vector3(0.1f, 0.1f, 0.1f);
 
@@ -33,7 +34,9 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         if (meshOrigin == null)
             meshOrigin = transform;
 
-        Bounds bounds = new Bounds(meshOrigin.position, new Vector3(buildSize.x, buildSize.z, buildSize.y)); // navmesh space bounds 
+        float yMax = Mathf.Max(Mathf.Abs(meshOrigin.position.z), Mathf.Abs(meshOrigin.position.y));
+        Vector3 boundsSize = new Vector3(buildSize.x + Mathf.Abs(meshOrigin.position.x), buildSize.y + yMax, buildSize.y + yMax);
+        Bounds bounds = new Bounds(new Vector3(meshOrigin.position.x, meshOrigin.position.z, meshOrigin.position.y), boundsSize); // navmesh space bounds 
 
         NavMeshBuildSettings buildSettings = NavMesh.GetSettingsByID(0);
         float defaultAgentRadius = buildSettings.agentRadius;
@@ -41,9 +44,9 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
 
         List<NavMeshBuildSource> navSources = PolygonNavmeshObstacle.Collect();
         navSources.Add(generateWalkablePlane());
-        
+
         //rotation from XY plane to XZ plane
-        for(int i = 0; i < navSources.Count; i++) {
+        for (int i = 0; i < navSources.Count; i++) {
             Matrix4x4 transformation = navSources[i].transform;
 
             Vector4 verticalDirection = transformation.GetRow(1);
@@ -64,9 +67,10 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
 
         navSources.Clear();
         buildSettings.agentRadius = defaultAgentRadius - buildSettings.agentRadius;
+        bounds = new Bounds(meshOrigin.position, boundsSize);
 
         NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
-        
+
         //do de-duping on vertices
         Dictionary<Vector3, int> positionToNewIndex = new Dictionary<Vector3, int>();
         for (int i = 0; i < triangulation.vertices.Length; i++) {
@@ -90,7 +94,7 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
 
         navSources.Add(generateReachableArea(deDupedVertices, triangleIndices, out reachableVertices));
 
-        if(includeUnreachableAreas) {
+        if (includeUnreachableAreas) {
             navSources.Add(generateUnreachableArea(deDupedVertices, triangleIndices, reachableVertices));
         }
 
@@ -173,13 +177,18 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         Queue<int> frontierQueue = new Queue<int>(); //queue of vertices to add
 
         for (int i = 0; i < reachabilityOrigins.Length; i++) {
+            Vector3 xzOrigin = new Vector3(reachabilityOrigins[i].x, reachabilityOrigins[i].z, reachabilityOrigins[i].y); //move origin from XY plane to XZ plane
+
             int originVertexIndex = 0; //find the closest vertex to use as the origin
-            float originDistance = Vector3.SqrMagnitude(reachabilityOrigins[i] - deDupedVertices[0]);
-            for (int j = 1; i < deDupedVertices.Length; j++) {
-                float distance = Vector3.SqrMagnitude(reachabilityOrigins[i] - deDupedVertices[j]);
+            float originDistance = Vector3.SqrMagnitude(xzOrigin - deDupedVertices[0]);
+            for (int j = 1; j < deDupedVertices.Length; j++) {
+                float distance = Vector3.SqrMagnitude(xzOrigin - deDupedVertices[j]);
                 if (distance < originDistance) {
                     originDistance = distance;
                     originVertexIndex = j;
+                    if (originDistance < vectorPrecision.sqrMagnitude) {
+                        break; //we can't be any more precise
+                    }
                 }
             }
 
@@ -209,6 +218,7 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
             }
         }
         reachableVertices = new HashSet<int>(vertexIndexMapping.Keys);
+        Assert.IsTrue(reachableVertices.Count > 0);
 
         Mesh mesh = generateBuildSourceFromTriangulation(deDupedVertices, triangleIndices, vertexIndexMapping);
 
@@ -217,6 +227,11 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         reachableResult.sourceObject = mesh;
         reachableResult.transform = Matrix4x4.identity;
         reachableResult.area = 0;
+
+        /*
+        transform.AddComponent<MeshFilter>().mesh = mesh;
+        transform.AddComponent<MeshRenderer>();
+        */
 
         return reachableResult;
     }
@@ -334,7 +349,7 @@ public class TwoDNavMeshBuilderWithReachability : MonoBehaviour {
         return new Vector3(x, y, 0);
     }
 
-    Vector3 RandomPointOnNavmesh(int numRegenerations = 0, int areaMask = NavMesh.AllAreas) {
+    public Vector3 RandomPointOnNavmesh(int numRegenerations = 0, int areaMask = NavMesh.AllAreas) {
         Vector3 destinationPoint = main.RandomPointInBounds();
         NavMeshHit myNavHit;
         while (!NavMesh.SamplePosition(destinationPoint, out myNavHit, 100 + numRegenerations * 10, areaMask)) {
