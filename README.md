@@ -9,3 +9,5 @@ GIF example:
 The project takes the data from the polygon colliders, converts them into 3D meshes, and feeds them into the low-level navmesh builder (at runtime).
 
 To use, place the TwoDNavmeshBuilder somewhere in the scene, and place PolygonNavmeshObstacle scripts on all polygon colliders you want to include in the navmesh.
+
+There is currently an issue with incorrect bounds caused by navmeshes centered away from the origin. Navmeshes with off-center origins will still bake if the bounds are large enough, and navmeshes centered on the origin are not affected.
